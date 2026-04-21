@@ -2,38 +2,50 @@ import os
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 
-def sync_folder(drive_folder_id, local_path):
-    # 1. Authenticate
+def main():
+    # 1. Authentication
     gauth = GoogleAuth()
-    gauth.LocalWebserverAuth() # Opens browser for login
+    # This will create a local file 'mycreds.txt' to store your login
+    # so you don't have to authenticate in the browser every time.
+    gauth.LoadCredentialsFile("mycreds.txt")
+    
+    if gauth.credentials is None:
+        gauth.LocalWebserverAuth()
+    elif gauth.access_token_expired:
+        gauth.Refresh()
+    else:
+        gauth.Authorize()
+    gauth.SaveCredentialsFile("mycreds.txt")
+
     drive = GoogleDrive(gauth)
 
-    if not os.path.exists(local_path):
-        os.makedirs(local_path)
+    # 2. Configuration
+    FOLDER_ID = 'YOUR_FOLDER_ID_HERE' # Get this from the Drive URL
+    LOCAL_DIR = './downloaded_photos'
+    
+    if not os.path.exists(LOCAL_DIR):
+        os.makedirs(LOCAL_DIR)
 
-    # 2. List files in GDrive folder
-    query = f"'{drive_folder_id}' in parents and trashed=false"
+    # 3. Fetch File List
+    query = f"'{FOLDER_ID}' in parents and trashed=false"
     file_list = drive.ListFile({'q': query}).GetList()
 
-    print(f"Found {len(file_list)} files in Google Drive. Starting sync...")
+    print(f"Found {len(file_list)} files. Starting check...")
 
+    # 4. Sync Logic
     for file in file_list:
         file_name = file['title']
-        target_file_path = os.path.join(local_path, file_name)
+        path = os.path.join(LOCAL_DIR, file_name)
 
-        # 3. Check if file exists locally
-        if os.path.exists(target_file_path):
-            print(f"Skipping: {file_name} (Already exists)")
-        else:
-            print(f"Downloading: {file_name}...")
-            try:
-                file.GetContentFile(target_file_path)
-            except Exception as e:
-                print(f"Error downloading {file_name}: {e}")
+        if os.path.exists(path):
+            # Optional: Check file size if you want to ensure the previous 
+            # interrupted download wasn't a partial file.
+            if os.path.getsize(path) == int(file['fileSize']):
+                print(f"[-] Skipping {file_name} (Exists)")
+                continue
+
+        print(f"[+] Downloading {file_name}...")
+        file.GetContentFile(path)
 
 if __name__ == "__main__":
-    # Replace with your actual Folder ID (from the URL) and local path
-    FOLDER_ID = '123_YOUR_FOLDER_ID_HERE_abc'
-    LOCAL_DEST = './my_photos'
-    
-    sync_folder(FOLDER_ID, LOCAL_DEST)
+    main()

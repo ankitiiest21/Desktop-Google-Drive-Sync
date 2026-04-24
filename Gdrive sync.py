@@ -20,7 +20,7 @@ def start_sync():
 
     # CONFIG: Change these two!
     FOLDER_ID = 'PASTE_YOUR_FOLDER_ID_HERE' 
-    SAVE_PATH = './my_retrieved_photos'
+    SAVE_PATH = r'C:/Users/c007u/Downloads/Trips/Bali & Jakarta'
 
     if not os.path.exists(SAVE_PATH):
         os.makedirs(SAVE_PATH)

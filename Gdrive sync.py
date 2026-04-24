@@ -27,15 +27,19 @@ def start_sync():
 
     # Get the list of photos from Drive
     print("Checking Google Drive... hang tight.")
-    files = drive.ListFile({'q': f"'{FOLDER_ID}' in parents and trashed=false"}).GetList()
-
+    files = drive.ListFile({'q': f"'{FOLDER_ID}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed=false"}).GetList()
     for f in files:
-        target = os.path.join(SAVE_PATH, f['title'])
+    # SKIP if it's a folder to avoid the crash
+        if f['mimeType'] == 'application/vnd.google-apps.folder':
+            print(f"[-] Skipping folder: {f['title']} (Logic only handles files)")
+            continue
         
+        target = os.path.join(SAVE_PATH, f['title'])
+    
         if os.path.exists(target):
-            print(f"Skipping {f['title']} - already got it.")
+            print(f"[-] Skipping {f['title']} - already exists.")
         else:
-            print(f"Downloading {f['title']}...")
+            print(f"[+] Downloading {f['title']}...")
             f.GetContentFile(target)
 
     print("Success! All photos synced.")

@@ -1,37 +1,50 @@
 import os
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
+from concurrent.futures import ThreadPoolExecutor
 
-def recursive_sync(drive, folder_id, local_path):
-    # 1. Create the local folder if it doesn't exist
+def download_file(drive_file, local_path):
+    """Worker function to download a single file."""
+    file_name = drive_file['title']
+    # Sanitize filename for Windows
+    clean_name = "".join([c for c in file_name if c not in '<>:"/\\|?*'])
+    target_path = os.path.join(local_path, clean_name)
+
+    if os.path.exists(target_path):
+        print(f"[-] Skipping: {file_name}")
+        return
+    
+    try:
+        print(f"[+] Downloading: {file_name}...")
+        drive_file.GetContentFile(target_path)
+    except Exception as e:
+        print(f"[!] Error downloading {file_name}: {e}")
+
+def recursive_sync(drive, folder_id, local_path, executor):
     if not os.path.exists(local_path):
         os.makedirs(local_path)
-        print(f"Created folder: {local_path}")
 
-    # 2. List everything in this specific Drive folder
     query = f"'{folder_id}' in parents and trashed=false"
     file_list = drive.ListFile({'q': query}).GetList()
 
-    for file in file_list:
-        file_name = file['title']
-        # Sanitize filename (remove characters Windows doesn't like)
-        clean_name = "".join([c for c in file_name if c not in '<>:"/\\|?*'])
-        target_path = os.path.join(local_path, clean_name)
+    files_to_download = []
 
-        # 3. If it's a FOLDER, go deeper (Recursion)
-        if file['mimeType'] == 'application/vnd.google-apps.folder':
-            print(f"--- Entering Folder: {file_name} ---")
-            recursive_sync(drive, file['id'], target_path)
+    for file in file_list:
+        target_path = os.path.join(local_path, file['title'])
         
-        # 4. If it's a FILE, download it
+        # If it's a folder, recurse immediately (don't thread the folder walking)
+        if file['mimeType'] == 'application/vnd.google-apps.folder':
+            recursive_sync(drive, file['id'], target_path, executor)
         else:
-            if os.path.exists(target_path):
-                print(f"[-] Skipping: {file_name}")
-            else:
-                print(f"[+] Downloading: {file_name}")
-                file.GetContentFile(target_path)
+            # If it's a file, add it to our "to-do" list for threads
+            files_to_download.append(file)
+
+    # Hand off the file downloads to the thread pool
+    for f in files_to_download:
+        executor.submit(download_file, f, local_path)
 
 def start_sync():
+    # 1. Auth Setup
     gauth = GoogleAuth()
     gauth.LoadCredentialsFile("my_login.txt")
     if gauth.credentials is None: gauth.LocalWebserverAuth()
@@ -41,13 +54,20 @@ def start_sync():
     
     drive = GoogleDrive(gauth)
 
-    # UPDATED FOLDER ID AND PATH
-    FOLDER_ID = '1D0yr5gxKYTBbrMSYON9QsxuvzLvzOifY'
-    SAVE_PATH = r'C:\Users\z004nvnc\Downloads\Wedding\Ankit & Muskan\Candid\Pankatti,Baraat,Shaadi'
+    # 2. User Input
+    print("\n--- GDrive Wedding Photo Sync Utility ---")
+    folder_id = input("Enter Google Drive Folder ID: ").strip()
+    raw_path = input(r"Enter Local Destination Path (e.g. C:\Photos): ").strip()
+    
+    # Handle the raw path automatically
+    save_path = os.path.normpath(raw_path)
 
-    print("Starting Deep Sync... This may take a while.")
-    recursive_sync(drive, FOLDER_ID, SAVE_PATH)
-    print("\nDONE! Your wedding photos are fully synced.")
+    # 3. Execution with 10 concurrent threads
+    print(f"\nStarting sync in: {save_path}")
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        recursive_sync(drive, folder_id, save_path, executor)
+    
+    print("\n[COMPLETE] All threads finished. Check your folder!")
 
 if __name__ == "__main__":
     start_sync()
